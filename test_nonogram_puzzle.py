@@ -6,7 +6,14 @@ from pathlib import Path
 
 from nonogram_overlap import FILLED, GAP, UNKNOWN, analyze, format_report
 from nonogram_linesolve import LineContradiction
-from nonogram_puzzle import Puzzle, line_matches_clue, parse_puzzle, save_puzzle, load_puzzle
+from nonogram_puzzle import (
+    Puzzle,
+    format_grid_triage_report,
+    line_matches_clue,
+    load_puzzle,
+    parse_puzzle,
+    save_puzzle,
+)
 
 
 class TestConstruction(unittest.TestCase):
@@ -584,6 +591,84 @@ class TestUndoRedo(unittest.TestCase):
     def test_redo_on_empty_stack_returns_empty_list(self):
         puzzle = Puzzle(row_clues=[[1]], col_clues=[[1]])
         self.assertEqual(puzzle.redo(), [])
+
+
+class TestGridTriageReport(unittest.TestCase):
+    def test_blank_puzzle_lists_every_line_none_solved(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        report = format_grid_triage_report(puzzle)
+        self.assertIn("GRID TRIAGE - 10 lines", report)
+        self.assertIn("0 solved, 2 with a move, 0 contradictions", report)
+        self.assertIn("Overall: 0 of 25 cells filled (0%)", report)
+        # Row 3 and Column 3 are the only immediately-deducible lines
+        # (slack 0 - clue [5] fills the whole length-5 line).
+        self.assertIn("Row 3", report)
+        self.assertIn("Column 3", report)
+
+    def test_solved_lines_are_hidden_by_default(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        puzzle.propagate([(3, 3)])  # fully solves the whole grid
+        report = format_grid_triage_report(puzzle)
+        self.assertIn("10 solved, 0 with a move, 0 contradictions", report)
+        self.assertIn("Overall: 25 of 25 cells filled (100%)", report)
+        self.assertIn("Nothing to show", report)
+        self.assertNotIn("Row 1", report)
+
+    def test_show_solved_true_lists_them_anyway(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        puzzle.propagate([(3, 3)])
+        report = format_grid_triage_report(puzzle, show_solved=True)
+        self.assertIn("Row 1", report)
+        self.assertIn("Column 5", report)
+        self.assertNotIn("Nothing to show", report)
+
+    def test_max_unknown_filters_out_lines_with_more_unknowns(self):
+        puzzle = Puzzle(row_clues=[[1], [1]], col_clues=[[1], [1]])
+        puzzle.set_cell(1, 1, FILLED)  # row 1 and col 1 now have 1 unknown; row/col 2 have 2
+        report = format_grid_triage_report(puzzle, max_unknown=1)
+        self.assertIn("Row 1", report)
+        self.assertIn("Column 1", report)
+        self.assertNotIn("Row 2", report)
+        self.assertNotIn("Column 2", report)
+
+    def test_lines_with_a_move_are_flagged_and_sorted_before_others(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        report = format_grid_triage_report(puzzle)
+        row3_line = next(line for line in report.splitlines() if "Row 3" in line)
+        row1_line = next(line for line in report.splitlines() if "Row 1" in line)
+        self.assertLess(report.index(row3_line), report.index(row1_line))
+        self.assertIn("yes", row3_line)
+        self.assertIn("-", row1_line)
+
+    def test_contradictory_line_is_reported_separately_not_ranked(self):
+        puzzle = Puzzle(row_clues=[[3], [1]], col_clues=[[1], [], [], [], []])
+        puzzle.set_cell(1, 1, FILLED)
+        puzzle._set_cell_raw(1, 2, GAP)  # bypass set_cell's guard to build a bad state
+
+        report = format_grid_triage_report(puzzle)
+        self.assertIn("0 solved, 5 with a move, 1 contradiction", report)
+        self.assertIn("CONTRADICTIONS (1)", report)
+        self.assertIn("Row 1: No arrangement of [3] fits the current line state.", report)
+        # The message appears exactly once - not doubled with a
+        # separately-prepended label.
+        self.assertEqual(report.count("Row 1: No arrangement"), 1)
+
+    def test_contradiction_does_not_stop_other_lines_from_being_triaged(self):
+        puzzle = Puzzle(row_clues=[[3], [1]], col_clues=[[1], [], [], [], []])
+        puzzle.set_cell(1, 1, FILLED)
+        puzzle._set_cell_raw(1, 2, GAP)
+
+        report = format_grid_triage_report(puzzle)
+        self.assertIn("Row 2", report)
+        self.assertIn("Column 1", report)
+
+    def test_overall_completion_counts_each_cell_once(self):
+        # A regression guard against double-counting: summing resolved
+        # cells across both rows and columns would double every cell.
+        puzzle = Puzzle(row_clues=[[1], [1]], col_clues=[[1], [1]])
+        puzzle.set_cell(1, 1, FILLED)
+        report = format_grid_triage_report(puzzle, show_solved=True)
+        self.assertIn("Overall: 1 of 4 cells filled (25%)", report)
 
 
 if __name__ == "__main__":
