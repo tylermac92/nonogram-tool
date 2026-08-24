@@ -94,6 +94,84 @@ def solve_line(clue, known):
     return result
 
 
+def find_solved_blocks(clue, known):
+    """Return the 0-indexed positions of every clue block whose start is
+    the same in every valid arrangement consistent with `known` - a
+    block that's fully pinned down, not just one whose cells happen to
+    already be FILLED.
+
+    This is deliberately its own feasibility question, not something
+    readable off solve_line()'s per-cell result: a run of FILLED cells
+    doesn't by itself say which clue index it belongs to, especially
+    before the line is fully solved. E.g. clue [2, 2] with only one
+    FILLED cell known: that cell is forced to belong to *some* block,
+    but which one - and where that block's other cell lands - may still
+    be ambiguous. For block k, this asks: across every arrangement
+    satisfying `clue` and consistent with `known`, is there exactly one
+    feasible start position?
+
+    Raises LineContradiction if `known` doesn't fit `clue` at all.
+    """
+    n = len(known)
+    m = len(clue)
+
+    if not _is_feasible(clue, known):
+        raise LineContradiction(
+            f"No arrangement of {clue} fits the current line state."
+        )
+
+    if m == 0:
+        return []
+
+    # reach[k]: cursor positions from which blocks[:k] could have been
+    # validly arranged over cells [0, pos) - forward reachability only,
+    # independent of whether block k onward can still complete from there.
+    reach = [set() for _ in range(m + 1)]
+    reach[0].add(0)
+    for k in range(m):
+        frontier = set(reach[k])
+        for start in list(frontier):
+            pos = start
+            while pos < n and known[pos] != FILLED:
+                pos += 1
+                frontier.add(pos)
+        reach[k] = frontier
+
+        size = clue[k]
+        for pos in reach[k]:
+            end = pos + size
+            if end > n or any(known[i] == GAP for i in range(pos, end)):
+                continue
+            if k + 1 < m:
+                if end < n and known[end] != FILLED:
+                    reach[k + 1].add(end + 1)
+            else:
+                reach[k + 1].add(end)
+
+    def can_start_here(k, pos):
+        """pos is already known reachable for block k (blocks before it
+        can validly lead here) - can block k actually be placed at pos,
+        *and* can blocks[k+1:] still complete the rest of the line from
+        what's left? Reuses _is_feasible on the remaining clue/known
+        suffix rather than re-deriving the same recursion."""
+        size = clue[k]
+        end = pos + size
+        if end > n or any(known[i] == GAP for i in range(pos, end)):
+            return False
+        if k + 1 < m:
+            if end >= n or known[end] == FILLED:
+                return False
+            return _is_feasible(clue[k + 1:], known[end + 1:])
+        return _is_feasible(clue[k + 1:], known[end:])
+
+    pinned = []
+    for k in range(m):
+        starts = [pos for pos in reach[k] if can_start_here(k, pos)]
+        if len(starts) == 1:
+            pinned.append(k)
+    return pinned
+
+
 if __name__ == "__main__":
     from nonogram_overlap import analyze
 

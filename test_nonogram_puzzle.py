@@ -508,6 +508,34 @@ class TestHints(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Row 1"):
             puzzle.explain_line("row", 1)
 
+    def test_solved_clue_indices_blank_line_pins_nothing(self):
+        puzzle = Puzzle(row_clues=[[2, 2]], col_clues=[[]] * 8)
+        self.assertEqual(puzzle.solved_clue_indices("row", 1), [])
+
+    def test_solved_clue_indices_slack_zero_pins_every_block(self):
+        puzzle = Puzzle(row_clues=[[3, 2]], col_clues=[[1]] * 3 + [[]] + [[1]] * 2)
+        self.assertEqual(puzzle.solved_clue_indices("row", 1), [1, 2])
+
+    def test_solved_clue_indices_one_block_pinned_one_still_ambiguous(self):
+        # clue [1, 1]: a FILLED cell at column 1 can only belong to
+        # block 1 (leftmost) - block 2 could still start anywhere later.
+        puzzle = Puzzle(row_clues=[[1, 1]], col_clues=[[1]] + [[]] * 6)
+        puzzle.set_cell(1, 1, FILLED)
+        self.assertEqual(puzzle.solved_clue_indices("row", 1), [1])
+
+    def test_solved_clue_indices_does_not_mutate_the_grid(self):
+        puzzle = Puzzle(row_clues=[[1, 1]], col_clues=[[1]] + [[]] * 6)
+        puzzle.set_cell(1, 1, FILLED)
+        puzzle.solved_clue_indices("row", 1)
+        self.assertEqual(puzzle.get_row(1), [FILLED, UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN])
+
+    def test_solved_clue_indices_propagates_labeled_contradiction(self):
+        puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
+        puzzle.set_cell(1, 1, FILLED)
+        puzzle._set_cell_raw(1, 2, GAP)
+        with self.assertRaisesRegex(LineContradiction, "Row 1"):
+            puzzle.solved_clue_indices("row", 1)
+
 
 class TestUndoRedo(unittest.TestCase):
     def test_set_cell_records_single_step_and_undo_reverts_it(self):
