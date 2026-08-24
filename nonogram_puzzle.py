@@ -1,6 +1,7 @@
 """Persistent puzzle/grid state, built on top of nonogram_overlap.py."""
 
 import re
+from collections import deque
 
 from nonogram_overlap import FILLED, GAP, UNKNOWN, LineError, parse_clues
 from nonogram_linesolve import solve_line, LineContradiction
@@ -61,6 +62,19 @@ class Puzzle:
         self.grid[r][c] = state
 
     def apply_line_solver(self, kind, index):
+        """Run the line solver on one row/column and record every forced
+        cell as a single undo step. Returns the (row, col, new) changes.
+        """
+        step = self._apply_line_solver_raw(kind, index)
+        self._record_step(step)
+        return [(row, col, new) for row, col, old, new in step]
+
+    def _apply_line_solver_raw(self, kind, index):
+        """Like apply_line_solver, but writes forced cells directly
+        without recording undo history. Callers that make several such
+        calls in one logical action (apply_line_solver, propagate) group
+        the returned (row, col, old, new) changes into their own step.
+        """
         if kind == "row":
             known = self.get_row(index)
             clue = self.row_clues[index - 1]
@@ -84,8 +98,59 @@ class Puzzle:
             self._set_cell_raw(row, col, new)
             step.append((row, col, old, new))
 
-        self._record_step(step)
-        return [(row, col, new) for row, col, old, new in step]
+        return step
+
+    def propagate(self, seed_changes):
+        """Fixed-point constraint propagation from a set of just-changed
+        cells: run the line solver on each seed cell's row and column,
+        then chase every newly-forced cell into its cross line, until the
+        worklist drains.
+
+        seed_changes is an iterable of (row, col, ...) tuples - only the
+        first two elements of each are used, so the return values of
+        set_cell or apply_line_solver can be passed straight in.
+
+        Returns the full list of (row, col, new) cells the cascade
+        touched, not just the seed lines, so a future UI can highlight
+        everything one action rippled into.
+
+        If a line partway through the cascade turns out contradictory,
+        everything deduced earlier in the same cascade is kept - it was
+        validly derived from what was known at the time, so the
+        contradiction lives in an already-marked cell, not in the
+        propagation logic. The whole partial cascade is still recorded as
+        one combined undo step before the LineContradiction is re-raised.
+        """
+        queue = deque()
+        queued = set()
+
+        def enqueue(kind, index):
+            key = (kind, index)
+            if key not in queued:
+                queued.add(key)
+                queue.append(key)
+
+        for change in seed_changes:
+            row, col = change[0], change[1]
+            enqueue("row", row)
+            enqueue("col", col)
+
+        all_changes = []
+        try:
+            while queue:
+                kind, index = queue.popleft()
+                queued.discard((kind, index))
+                changes = self._apply_line_solver_raw(kind, index)
+                all_changes.extend(changes)
+                for row, col, old, new in changes:
+                    if kind == "row":
+                        enqueue("col", col)
+                    else:
+                        enqueue("row", row)
+        finally:
+            self._record_step(all_changes)
+
+        return [(row, col, new) for row, col, old, new in all_changes]
 
     def is_solved(self):
         rows_ok = all(

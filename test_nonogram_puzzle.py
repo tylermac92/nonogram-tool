@@ -261,6 +261,115 @@ class TestPersistenceRoundTrip(unittest.TestCase):
         self.assertEqual(loaded.col_clues, [[], [], []])
 
 
+class TestApplyLineSolverRaw(unittest.TestCase):
+    def test_raw_writes_cells_but_records_no_undo_step(self):
+        # Blank row, clue [3] in a length-5 line: slack 2, so only the
+        # overlap-guaranteed middle cell (position 3) is forced.
+        puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [1], [1], [], []])
+        changes = puzzle._apply_line_solver_raw("row", 1)
+        self.assertEqual(changes, [(1, 3, UNKNOWN, FILLED)])
+        self.assertEqual(puzzle.get_row(1), [UNKNOWN, UNKNOWN, FILLED, UNKNOWN, UNKNOWN])
+        self.assertEqual(puzzle.undo(), [])  # nothing was recorded
+
+
+# A plus-sign solution grid, used to build clues that are guaranteed
+# consistent (derived from an actual filled grid, not hand-guessed):
+#   ..#..
+#   ..#..
+#   #####
+#   ..#..
+#   ..#..
+# Row 3 and column 3 are slack-0 (fully self-determined); every other
+# row/column has clue [1] and only becomes determined once row 3 or
+# column 3 supplies its one known cell - exactly the kind of two-hop
+# dependency propagate()'s worklist needs to chase.
+PLUS_ROW_CLUES = [[1], [1], [5], [1], [1]]
+PLUS_COL_CLUES = [[1], [1], [5], [1], [1]]
+
+
+class TestPropagate(unittest.TestCase):
+    def test_cascades_across_multiple_lines_from_a_single_seed(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        changes = puzzle.propagate([(3, 3)])
+
+        self.assertTrue(puzzle.is_solved())
+        self.assertEqual(len(changes), 25)  # the whole 5x5 grid got resolved
+        for row, col, new in changes:
+            self.assertEqual(puzzle.get_cell(row, col), new)
+
+        for r in (1, 2, 4, 5):
+            self.assertEqual(puzzle.get_row(r), [GAP, GAP, FILLED, GAP, GAP])
+        self.assertEqual(puzzle.get_row(3), [FILLED] * 5)
+
+    def test_whole_cascade_is_one_undo_step(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        puzzle.propagate([(3, 3)])
+        self.assertEqual(len(puzzle._undo_stack), 1)
+
+        puzzle.undo()
+        self.assertEqual(puzzle.get_row(1), [UNKNOWN] * 5)
+        self.assertEqual(puzzle.get_row(3), [UNKNOWN] * 5)
+        self.assertEqual(len(puzzle._undo_stack), 0)
+
+    def test_redo_reapplies_the_whole_cascade(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        puzzle.propagate([(3, 3)])
+        puzzle.undo()
+        puzzle.redo()
+        self.assertTrue(puzzle.is_solved())
+        self.assertEqual(puzzle.get_row(3), [FILLED] * 5)
+
+    def test_seed_with_no_deducible_info_yields_no_changes_and_no_step(self):
+        # Neither row 1 nor column 1 has any known cell yet, and clue [1]
+        # alone (in a length-5 line) doesn't pin down a position.
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        changes = puzzle.propagate([(1, 1)])
+        self.assertEqual(changes, [])
+        self.assertEqual(puzzle.get_row(1), [UNKNOWN] * 5)
+        self.assertEqual(puzzle.undo(), [])
+
+    def test_seed_accepts_tuples_with_extra_elements(self):
+        # apply_line_solver()/set_cell()-shaped (row, col, ...) tuples
+        # should work directly as seeds, not just bare (row, col) pairs.
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        changes = puzzle.propagate([(3, 3, FILLED)])
+        self.assertEqual(len(changes), 25)
+        self.assertTrue(puzzle.is_solved())
+
+    def test_contradiction_mid_cascade_keeps_earlier_deductions(self):
+        # Row 1 = [3] forces column 2/3 filled; columns 2-5 must be blank,
+        # so column 2 contradicts once it's reached - but column 1's
+        # valid deductions (made first) should survive.
+        puzzle = Puzzle(
+            row_clues=[[3], [1], [1], [1], [1]],
+            col_clues=[[1], [], [], [], []],
+        )
+        puzzle.set_cell(1, 1, FILLED)
+        self.assertEqual(len(puzzle._undo_stack), 1)
+
+        with self.assertRaisesRegex(LineContradiction, "Column 2"):
+            puzzle.propagate([(1, 1)])
+
+        # Row 1 and column 1 were fully (and validly) resolved before the
+        # contradiction in column 2 was hit.
+        self.assertEqual(puzzle.get_row(1), [FILLED, FILLED, FILLED, GAP, GAP])
+        self.assertEqual(puzzle.get_col(1), [FILLED, GAP, GAP, GAP, GAP])
+
+        # The whole partial cascade is one combined step on top of the
+        # manual set_cell step - not one step per line.
+        self.assertEqual(len(puzzle._undo_stack), 2)
+
+        puzzle.undo()
+        self.assertEqual(puzzle.get_row(1), [FILLED, UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN])
+        self.assertEqual(puzzle.get_col(1), [FILLED, UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN])
+        self.assertEqual(len(puzzle._undo_stack), 1)
+
+    def test_empty_seed_is_a_no_op(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        self.assertEqual(puzzle.propagate([]), [])
+        self.assertEqual(len(puzzle._undo_stack), 0)
+
+
 class TestUndoRedo(unittest.TestCase):
     def test_set_cell_records_single_step_and_undo_reverts_it(self):
         puzzle = Puzzle(row_clues=[[1]], col_clues=[[1]])
