@@ -3,8 +3,30 @@
 import re
 from collections import deque
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN, LineError, parse_clues
+from nonogram_overlap import (
+    FILLED,
+    GAP,
+    UNKNOWN,
+    LineError,
+    analyze,
+    format_report,
+    parse_clues,
+)
 from nonogram_linesolve import solve_line, LineContradiction
+
+
+def _diff_cells(known, solved, kind, index):
+    """Yield (row, col, old, new) for every cell where solved disagrees
+    with known, translating the line-local position back to grid
+    coordinates. Shared by the code that writes these cells
+    (_apply_line_solver_raw) and the code that only wants to preview them
+    (find_move_cells).
+    """
+    for i, (old, new) in enumerate(zip(known, solved), start=1):
+        if old == new:
+            continue
+        row, col = (index, i) if kind == "row" else (i, index)
+        yield row, col, old, new
 
 
 class Puzzle:
@@ -75,30 +97,99 @@ class Puzzle:
         calls in one logical action (apply_line_solver, propagate) group
         the returned (row, col, old, new) changes into their own step.
         """
+        known, solved = self._solve_line(kind, index)
+        step = []
+        for row, col, old, new in _diff_cells(known, solved, kind, index):
+            self._set_cell_raw(row, col, new)
+            step.append((row, col, old, new))
+        return step
+
+    def _line_state(self, kind, index):
+        """Return (known_cells, clue) for one row or column."""
         if kind == "row":
-            known = self.get_row(index)
-            clue = self.row_clues[index - 1]
+            return self.get_row(index), self.row_clues[index - 1]
         elif kind == "col":
-            known = self.get_col(index)
-            clue = self.col_clues[index - 1]
+            return self.get_col(index), self.col_clues[index - 1]
         else:
             raise ValueError(f"kind must be 'row' or 'col', got {kind!r}")
 
+    def _solve_line(self, kind, index):
+        """Return (known, solved) for one row/column: known is its
+        current per-cell state, solved is what solve_line deduces from
+        it - without writing anything back. Raises LineContradiction,
+        labeled with the line, if the known cells don't fit the clue.
+        """
+        known, clue = self._line_state(kind, index)
         try:
             solved = solve_line(clue, known)
         except LineContradiction as exc:
             label = f"{'Row' if kind == 'row' else 'Column'} {index}"
             raise LineContradiction(f"{label}: {exc}") from exc
+        return known, solved
 
-        step = []
-        for i, (old, new) in enumerate(zip(known, solved), start=1):
-            if old == new:
-                continue
-            row, col = (index, i) if kind == "row" else (i, index)
-            self._set_cell_raw(row, col, new)
-            step.append((row, col, old, new))
+    def _all_lines(self):
+        """Yield (kind, index) for every row, then every column."""
+        for r in range(1, self.height + 1):
+            yield ("row", r)
+        for c in range(1, self.width + 1):
+            yield ("col", c)
 
-        return step
+    def has_any_move(self):
+        """Hint tier 1: does any row or column currently have a
+        deducible cell? Non-mutating - runs solve_line against the
+        current grid but never writes the result back, so asking for a
+        hint never changes the puzzle before the user accepts it.
+
+        Short-circuits on the first line with a move; a LineContradiction
+        on an already-inconsistent line propagates rather than being
+        treated as "no move", consistent with apply_line_solver/propagate.
+        """
+        return any(self._line_has_move(kind, index) for kind, index in self._all_lines())
+
+    def find_move_lines(self):
+        """Hint tier 2: like has_any_move(), but returns every (kind,
+        index) line that currently has a deducible cell instead of
+        stopping at the first.
+        """
+        return [
+            (kind, index)
+            for kind, index in self._all_lines()
+            if self._line_has_move(kind, index)
+        ]
+
+    def _line_has_move(self, kind, index):
+        known, solved = self._solve_line(kind, index)
+        return any(new != old for old, new in zip(known, solved))
+
+    def find_move_cells(self, kind, index):
+        """Hint tier 3: for one specific row/column, return the forced
+        cells and their target states as (row, col, new) triples - the
+        same shape apply_line_solver returns - without writing them.
+        Empty list if the line has no deducible cell right now.
+        """
+        known, solved = self._solve_line(kind, index)
+        return [(row, col, new) for row, col, old, new in _diff_cells(known, solved, kind, index)]
+
+    def explain_line(self, kind, index):
+        """Hint tier 4: human-readable reasoning for one line, reusing
+        nonogram_overlap's format_report().
+
+        Only works for a line that's still entirely UNKNOWN: format_report
+        is built on analyze()'s blank-line slack/overlap technique, which
+        has no notion of already-known cells. A line with partial state
+        needs its own explainer - that doesn't exist yet, so this raises
+        rather than silently handing back blank-line reasoning for a line
+        it wasn't computed for.
+        """
+        known, clue = self._line_state(kind, index)
+        if any(state != UNKNOWN for state in known):
+            label = f"{'Row' if kind == 'row' else 'Column'} {index}"
+            raise ValueError(
+                f"{label} already has known cells - format_report() only "
+                "explains a still-blank line; there's no partial-state "
+                "explainer yet."
+            )
+        return format_report(analyze(len(known), clue))
 
     def propagate(self, seed_changes):
         """Fixed-point constraint propagation from a set of just-changed

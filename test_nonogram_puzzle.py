@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN
+from nonogram_overlap import FILLED, GAP, UNKNOWN, analyze, format_report
 from nonogram_linesolve import LineContradiction
 from nonogram_puzzle import Puzzle, line_matches_clue, parse_puzzle, save_puzzle, load_puzzle
 
@@ -368,6 +368,76 @@ class TestPropagate(unittest.TestCase):
         puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
         self.assertEqual(puzzle.propagate([]), [])
         self.assertEqual(len(puzzle._undo_stack), 0)
+
+
+class TestHints(unittest.TestCase):
+    """Tiered, non-mutating hints: has_any_move (1), find_move_lines (2),
+    find_move_cells (3), explain_line (4)."""
+
+    # A puzzle with no immediately deducible cell anywhere: every line is
+    # a single clue of size 1 in a length-5 line (slack 4), which the
+    # overlap/feasibility check can't pin down from a blank state.
+    NO_MOVE_ROW_CLUES = [[1]] * 5
+    NO_MOVE_COL_CLUES = [[1]] * 5
+
+    def test_has_any_move_true_when_a_line_is_deducible(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        self.assertTrue(puzzle.has_any_move())
+
+    def test_has_any_move_false_when_nothing_is_deducible(self):
+        puzzle = Puzzle(row_clues=self.NO_MOVE_ROW_CLUES, col_clues=self.NO_MOVE_COL_CLUES)
+        self.assertFalse(puzzle.has_any_move())
+
+    def test_has_any_move_does_not_mutate_the_grid_or_undo_stack(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        puzzle.has_any_move()
+        self.assertEqual(puzzle.get_row(3), [UNKNOWN] * 5)
+        self.assertEqual(len(puzzle._undo_stack), 0)
+
+    def test_find_move_lines_returns_every_line_with_a_move(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        self.assertEqual(puzzle.find_move_lines(), [("row", 3), ("col", 3)])
+
+    def test_find_move_lines_empty_when_nothing_is_deducible(self):
+        puzzle = Puzzle(row_clues=self.NO_MOVE_ROW_CLUES, col_clues=self.NO_MOVE_COL_CLUES)
+        self.assertEqual(puzzle.find_move_lines(), [])
+
+    def test_find_move_cells_matches_what_apply_line_solver_would_do(self):
+        preview = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        cells = preview.find_move_cells("row", 3)
+        self.assertEqual(preview.get_row(3), [UNKNOWN] * 5)  # preview didn't write anything
+        self.assertEqual(len(preview._undo_stack), 0)
+
+        applied = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        self.assertEqual(sorted(applied.apply_line_solver("row", 3)), sorted(cells))
+
+    def test_find_move_cells_empty_when_line_has_no_move(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        self.assertEqual(puzzle.find_move_cells("row", 1), [])
+
+    def test_has_any_move_propagates_contradiction(self):
+        puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
+        puzzle.set_cell(1, 1, FILLED)
+        puzzle.set_cell(1, 2, GAP)
+        with self.assertRaisesRegex(LineContradiction, "Row 1"):
+            puzzle.has_any_move()
+
+    def test_find_move_lines_propagates_contradiction(self):
+        puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
+        puzzle.set_cell(1, 1, FILLED)
+        puzzle.set_cell(1, 2, GAP)
+        with self.assertRaisesRegex(LineContradiction, "Row 1"):
+            puzzle.find_move_lines()
+
+    def test_explain_line_matches_format_report_for_a_blank_line(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        self.assertEqual(puzzle.explain_line("row", 3), format_report(analyze(5, [5])))
+
+    def test_explain_line_raises_once_the_line_has_known_cells(self):
+        puzzle = Puzzle(row_clues=PLUS_ROW_CLUES, col_clues=PLUS_COL_CLUES)
+        puzzle.set_cell(1, 3, FILLED)
+        with self.assertRaisesRegex(ValueError, "Row 1"):
+            puzzle.explain_line("row", 1)
 
 
 class TestUndoRedo(unittest.TestCase):
