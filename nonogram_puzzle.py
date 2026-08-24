@@ -12,7 +12,7 @@ from nonogram_overlap import (
     format_report,
     parse_clues,
 )
-from nonogram_linesolve import solve_line, LineContradiction
+from nonogram_linesolve import solve_line, LineContradiction, _is_feasible
 
 
 def _diff_cells(known, solved, kind, index):
@@ -71,17 +71,49 @@ class Puzzle:
         return self.grid[r][c]
 
     def set_cell(self, row, col, state):
+        """Mark one cell, refusing the write if it would make its row or
+        column infeasible for their clues. The check runs against the
+        state the grid would have *after* the write, but on rejection
+        the write is undone before raising, so a caller never observes
+        an inconsistent grid and no undo step is recorded for it. This
+        catches a bad manual mark immediately, rather than leaving it
+        to be discovered whenever a line solver next runs over that line
+        (apply_line_solver/propagate already raise LineContradiction the
+        same way once a line's actually examined - this exists for the
+        gap before that: a bare manual mark propagation hasn't reached).
+        """
+        if state not in (FILLED, GAP, UNKNOWN):
+            raise ValueError(f"Invalid cell state: {state!r}")
+
         old = self.get_cell(row, col)
         if old == state:
             return
+
         self._set_cell_raw(row, col, state)
+
+        for kind, index, clue in (
+            ("row", row, self.row_clues[row - 1]),
+            ("col", col, self.col_clues[col - 1]),
+        ):
+            if not self.check_feasible(kind, index):
+                self._set_cell_raw(row, col, old)  # refuse: leave the grid as it was
+                label = f"{'Row' if kind == 'row' else 'Column'} {index}"
+                raise LineContradiction(
+                    f"{label}: marking ({row}, {col}) as {state!r} leaves no "
+                    f"valid arrangement of {clue} for this line."
+                )
+
         self._record_step([(row, col, old, state)])
 
-        if state not in (FILLED, GAP, UNKNOWN):
-            raise ValueError(f"Invalid cell state: {state!r}")
-        r = self._row_index(row)
-        c = self._col_index(col)
-        self.grid[r][c] = state
+    def check_feasible(self, kind, index):
+        """Fast True/False: does this line's current known state still
+        admit at least one valid arrangement of its clue? This is the
+        same feasibility check solve_line already runs internally
+        (_is_feasible) - exposed directly, with no attempt at deduction,
+        as a cheap yes/no set_cell can call on every write.
+        """
+        known, clue = self._line_state(kind, index)
+        return _is_feasible(clue, known)
 
     def apply_line_solver(self, kind, index):
         """Run the line solver on one row/column and record every forced
