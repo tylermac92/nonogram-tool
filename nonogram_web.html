@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nonogram</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #1e1e1e; color: #ddd; padding: 1.5em; }
+  #status { min-height: 1.4em; margin-bottom: 0.75em; color: #9ad; }
+  #status.error { color: #e77; }
+  #board { display: inline-grid; gap: 1px; background: #444; }
+  .cell, .rowclue, .colclue, .corner {
+    background: #2a2a2a; display: flex; align-items: center; justify-content: center;
+    user-select: none;
+  }
+  .cell { width: 1.6em; height: 1.6em; cursor: pointer; }
+  .cell.filled { background: #eee; }
+  .cell.gap::after { content: "\00b7"; color: #777; font-size: 1.4em; }
+  .cell.flash { outline: 2px solid #fd6; outline-offset: -2px; }
+  .rowclue { justify-content: flex-end; padding-right: 0.5em; white-space: nowrap; font-size: 0.85em; }
+  .colclue {
+    flex-direction: column; justify-content: flex-end; align-items: center;
+    padding-bottom: 0.2em; font-size: 0.85em; line-height: 1.1;
+  }
+  .solved { text-decoration: line-through; color: #777; }
+  .corner { background: transparent; }
+  button { margin-right: 0.5em; margin-bottom: 1em; }
+</style>
+</head>
+<body>
+<h1>Nonogram</h1>
+<div id="status"></div>
+<div>
+  <button id="propagate-all">Propagate all</button>
+  <button id="undo">Undo</button>
+  <button id="redo">Redo</button>
+  <button id="save">Save</button>
+</div>
+<div id="board"></div>
+<p style="color:#888; font-size:0.85em; max-width:32em;">
+  Left-click a cell to fill it, right-click to mark it empty (x),
+  shift+click to clear it back to unknown.
+</p>
+
+<script>
+const board = document.getElementById("board");
+const statusEl = document.getElementById("status");
+let state = null;
+
+function setStatus(message, isError) {
+  statusEl.textContent = message;
+  statusEl.classList.toggle("error", !!isError);
+}
+
+async function api(path, body) {
+  const options = body === undefined
+    ? {}
+    : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const res = await fetch(path, options);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `Request to ${path} failed`);
+  return data;
+}
+
+function render() {
+  board.innerHTML = "";
+  const maxColHeight = Math.max(1, ...state.col_clues.map(c => c.length));
+  board.style.gridTemplateColumns = `auto repeat(${state.width}, auto)`;
+  board.style.gridTemplateRows = `repeat(${maxColHeight}, auto) repeat(${state.height}, auto)`;
+
+  // Top-left corner spans every column-clue header row, then the
+  // column clues themselves, then each row's clue + cells below.
+  const corner = document.createElement("div");
+  corner.className = "corner";
+  corner.style.gridRow = `1 / span ${maxColHeight}`;
+  corner.style.gridColumn = "1";
+  board.appendChild(corner);
+
+  for (let c = 0; c < state.width; c++) {
+    const clue = state.col_clues[c];
+    const solvedSet = new Set(state.col_solved[c]);
+    const cell = document.createElement("div");
+    cell.className = "colclue";
+    cell.style.gridRow = `1 / span ${maxColHeight}`;
+    cell.style.gridColumn = String(c + 2);
+    if (clue.length === 0) {
+      // blank column: nothing to show
+    } else {
+      clue.forEach((value, i) => {
+        const span = document.createElement("div");
+        span.textContent = value;
+        if (solvedSet.has(i + 1)) span.classList.add("solved");
+        cell.appendChild(span);
+      });
+    }
+    board.appendChild(cell);
+  }
+
+  for (let r = 0; r < state.height; r++) {
+    const rowClue = document.createElement("div");
+    rowClue.className = "rowclue";
+    rowClue.style.gridRow = String(maxColHeight + r + 1);
+    rowClue.style.gridColumn = "1";
+    const clue = state.row_clues[r];
+    const solvedSet = new Set(state.row_solved[r]);
+    if (clue.length === 0) {
+      rowClue.textContent = "0";
+    } else {
+      clue.forEach((value, i) => {
+        if (i > 0) rowClue.appendChild(document.createTextNode(", "));
+        const span = document.createElement("span");
+        span.textContent = value;
+        if (solvedSet.has(i + 1)) span.classList.add("solved");
+        rowClue.appendChild(span);
+      });
+    }
+    board.appendChild(rowClue);
+
+    for (let c = 0; c < state.width; c++) {
+      const mark = state.cells[r][c];
+      const cellEl = document.createElement("div");
+      cellEl.className = "cell";
+      cellEl.style.gridRow = String(maxColHeight + r + 1);
+      cellEl.style.gridColumn = String(c + 2);
+      if (mark === "#") cellEl.classList.add("filled");
+      if (mark === "x") cellEl.classList.add("gap");
+      cellEl.dataset.row = r + 1;
+      cellEl.dataset.col = c + 1;
+      cellEl.addEventListener("click", (e) => onCellClick(e, r + 1, c + 1));
+      cellEl.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        mark_cell(r + 1, c + 1, "x");
+      });
+      board.appendChild(cellEl);
+    }
+  }
+}
+
+async function onCellClick(event, row, col) {
+  const target = event.shiftKey ? "." : "#";
+  await mark_cell(row, col, target);
+}
+
+async function mark_cell(row, col, target) {
+  try {
+    const result = await api("/api/mark", { row, col, state: target });
+    await refresh(result.changes);
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+async function refresh(changedCells) {
+  state = await api("/api/state");
+  render();
+  setStatus(state.is_solved ? "Solved!" : "");
+  if (changedCells && changedCells.length) {
+    flash(changedCells);
+  }
+}
+
+function flash(changes) {
+  for (const [row, col] of changes) {
+    const el = board.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`);
+    if (el) el.classList.add("flash");
+  }
+  setTimeout(() => {
+    board.querySelectorAll(".cell.flash").forEach(el => el.classList.remove("flash"));
+  }, 1200);
+}
+
+async function runAction(path, body) {
+  try {
+    const result = await api(path, body === undefined ? {} : body);
+    await refresh(result.changes);
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+document.getElementById("propagate-all").addEventListener("click", () => runAction("/api/propagate", {}));
+document.getElementById("undo").addEventListener("click", () => runAction("/api/undo"));
+document.getElementById("redo").addEventListener("click", () => runAction("/api/redo"));
+document.getElementById("save").addEventListener("click", async () => {
+  try {
+    const result = await api("/api/save", {});
+    setStatus(`Saved as '${result.saved_id}'.`);
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+});
+
+refresh();
+</script>
+</body>
+</html>
