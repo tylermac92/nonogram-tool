@@ -45,6 +45,67 @@ class TestAccessors(unittest.TestCase):
             puzzle.set_cell(1, 1, "?")
 
 
+class TestCheckFeasible(unittest.TestCase):
+    def test_true_for_blank_line(self):
+        puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
+        self.assertTrue(puzzle.check_feasible("row", 1))
+        self.assertTrue(puzzle.check_feasible("col", 2))
+
+    def test_false_once_known_cells_cannot_fit_the_clue(self):
+        puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
+        puzzle.set_cell(1, 1, FILLED)
+        puzzle._set_cell_raw(1, 2, GAP)  # bypass set_cell to inspect the raw check
+        self.assertFalse(puzzle.check_feasible("row", 1))
+
+    def test_does_not_mutate_the_grid(self):
+        puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
+        puzzle.check_feasible("row", 1)
+        self.assertEqual(puzzle.get_row(1), [UNKNOWN] * 5)
+
+
+class TestSetCellFeasibility(unittest.TestCase):
+    """set_cell's own eager contradiction check - catching a bad manual
+    mark at the tap, before any line solver has run over it."""
+
+    def test_refuses_a_mark_that_makes_its_own_column_infeasible(self):
+        # Column 1's clue is blank ([]); a single row means the FILLED
+        # mark is immediately, locally infeasible for that column alone.
+        puzzle = Puzzle(row_clues=[[3]], col_clues=[[0]] * 5)
+        with self.assertRaisesRegex(LineContradiction, "Column 1"):
+            puzzle.set_cell(1, 1, FILLED)
+        self.assertEqual(puzzle.get_row(1), [UNKNOWN] * 5)
+        self.assertEqual(puzzle.undo(), [])  # nothing was recorded
+
+    def test_refuses_a_mark_that_makes_its_own_row_infeasible(self):
+        # Row 1 = [3] needs 3 consecutive filled cells including
+        # position 0; a GAP right next to an already-filled position 0
+        # rules out every placement.
+        puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
+        puzzle.set_cell(1, 1, FILLED)
+        with self.assertRaisesRegex(LineContradiction, "Row 1"):
+            puzzle.set_cell(1, 2, GAP)
+
+        # The refused mark left no trace: only the first, valid mark stands.
+        self.assertEqual(puzzle.get_row(1), [FILLED, UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN])
+        self.assertEqual(len(puzzle._undo_stack), 1)
+
+        puzzle.undo()
+        self.assertEqual(puzzle.get_row(1), [UNKNOWN] * 5)
+
+    def test_accepts_a_mark_that_stays_feasible_for_both_lines(self):
+        puzzle = Puzzle(row_clues=[[1], [1]], col_clues=[[1], [1]])
+        puzzle.set_cell(1, 1, FILLED)
+        self.assertEqual(puzzle.get_cell(1, 1), FILLED)
+        self.assertEqual(len(puzzle._undo_stack), 1)
+
+    def test_setting_a_cell_to_its_current_value_is_still_a_no_op(self):
+        # Same-value writes short-circuit before the feasibility check
+        # even runs, matching the pre-existing no-op behavior.
+        puzzle = Puzzle(row_clues=[[1]], col_clues=[[1]])
+        puzzle.set_cell(1, 1, UNKNOWN)
+        self.assertEqual(len(puzzle._undo_stack), 0)
+
+
 class TestLineMatchesClueAndIsSolved(unittest.TestCase):
     def test_line_matches_clue(self):
         cases = [
@@ -67,7 +128,10 @@ class TestLineMatchesClueAndIsSolved(unittest.TestCase):
 
     def test_is_solved_false_when_axes_contradict(self):
         puzzle = Puzzle(row_clues=[[3]], col_clues=[[0]] * 5)
-        puzzle.set_cell(1, 1, FILLED)
+        # set_cell would now refuse this (column 1's blank clue can't
+        # take a FILLED cell) - use _set_cell_raw to build the
+        # cross-axis-contradictory state is_solved() is meant to catch.
+        puzzle._set_cell_raw(1, 1, FILLED)
         puzzle.apply_line_solver("row", 1)
         self.assertFalse(puzzle.is_solved())
 
@@ -90,7 +154,10 @@ class TestApplyLineSolver(unittest.TestCase):
     def test_contradiction_includes_label(self):
         puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
         puzzle.set_cell(1, 1, FILLED)
-        puzzle.set_cell(1, 2, GAP)
+        # set_cell would now refuse this mark itself (see TestSetCell
+        # below) - use _set_cell_raw to build the bad state directly, so
+        # this test stays focused on apply_line_solver's own labeling.
+        puzzle._set_cell_raw(1, 2, GAP)
         with self.assertRaisesRegex(LineContradiction, "Row 1"):
             puzzle.apply_line_solver("row", 1)
 
@@ -418,14 +485,16 @@ class TestHints(unittest.TestCase):
     def test_has_any_move_propagates_contradiction(self):
         puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
         puzzle.set_cell(1, 1, FILLED)
-        puzzle.set_cell(1, 2, GAP)
+        # set_cell would now refuse this mark itself - bypass with
+        # _set_cell_raw to test has_any_move()'s own contradiction path.
+        puzzle._set_cell_raw(1, 2, GAP)
         with self.assertRaisesRegex(LineContradiction, "Row 1"):
             puzzle.has_any_move()
 
     def test_find_move_lines_propagates_contradiction(self):
         puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [], [], [], []])
         puzzle.set_cell(1, 1, FILLED)
-        puzzle.set_cell(1, 2, GAP)
+        puzzle._set_cell_raw(1, 2, GAP)
         with self.assertRaisesRegex(LineContradiction, "Row 1"):
             puzzle.find_move_lines()
 
