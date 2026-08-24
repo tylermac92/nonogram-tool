@@ -8,9 +8,14 @@ from nonogram_overlap import (
     GAP,
     UNKNOWN,
     LineError,
+    _GREEN,
+    _RED,
     analyze,
+    build_table,
     format_report,
+    paint,
     parse_clues,
+    section,
 )
 from nonogram_linesolve import solve_line, LineContradiction, _is_feasible, find_solved_blocks
 
@@ -526,6 +531,183 @@ def load_puzzle(path):
     with open(path, "r", encoding="utf-8") as fh:
         text = fh.read()
     return parse_puzzle(text)
+
+
+# ---------------------------------------------------------------------------
+# Batch/triage on a live grid
+# ---------------------------------------------------------------------------
+#
+# nonogram_overlap.py's parse_batch()/format_batch_report() triage a flat
+# clue-list text block against analyze()'s blank-line slack technique -
+# there's no known grid state involved at all. This is the alternative
+# entry point for the other input shape the same idea makes sense for: a
+# live Puzzle, where the interesting question per line isn't slack (a
+# blank-line-only concept) but how many cells are still UNKNOWN and
+# whether the line has a move available right now. It lives here rather
+# than in nonogram_overlap.py because it needs Puzzle and its grid state,
+# which nonogram_overlap.py (a lower layer Puzzle is built on) can't
+# import without a cycle - so "the batch/triage entry point" is really
+# two sibling functions in their natural layers, format_batch_report()
+# for flat clue-list text and format_grid_triage_report() here for a
+# live Puzzle, rather than one function overloaded across the two.
+
+
+def _line_triage_entries(puzzle):
+    """One entry per row and column of a live Puzzle: how many cells are
+    still UNKNOWN, and whether the line currently has a pending move.
+
+    The move check reuses Puzzle._line_has_move() - the exact per-line
+    primitive find_move_lines() (hint tier 2) is built from - so this
+    doesn't re-derive "does this line have a move" independently. Unlike
+    find_move_lines(), a LineContradiction on one line doesn't abort the
+    whole scan: it's collected the same way parse_batch() collects
+    per-line errors, so one bad line doesn't stop the rest of the puzzle
+    from being triaged.
+
+    Returns (entries, contradictions).
+    """
+    entries = []
+    contradictions = []
+
+    for kind, index in puzzle._all_lines():
+        known, clue = puzzle._line_state(kind, index)
+        label = f"{'Row' if kind == 'row' else 'Column'} {index}"
+        length = len(known)
+        unknown = known.count(UNKNOWN)
+        resolved = length - unknown
+        pct = 100.0 * resolved / length if length else 100.0
+
+        try:
+            has_move = puzzle._line_has_move(kind, index)
+        except LineContradiction as exc:
+            # str(exc) already reads "Row N: ..."/"Column N: ..." - it's
+            # _solve_line's own labeled message, not a bare one - so it's
+            # stored and shown as-is rather than prefixed with `label`
+            # again.
+            contradictions.append(str(exc))
+            has_move = None
+
+        entries.append(
+            {
+                "kind": kind,
+                "index": index,
+                "label": label,
+                "length": length,
+                "clue": clue,
+                "unknown": unknown,
+                "resolved": resolved,
+                "pct": pct,
+                "has_move": has_move,
+            }
+        )
+
+    return entries, contradictions
+
+
+def _triage_sort_key(entry):
+    """Solved lines (nothing left to triage) first, then lines with a
+    pending move, then everything else - ascending unknown-cell count
+    within each group, so the closest-to-done lines surface first."""
+    if entry["unknown"] == 0:
+        priority = 0
+    elif entry["has_move"]:
+        priority = 1
+    else:
+        priority = 2
+    return (priority, entry["unknown"], entry["kind"], entry["index"])
+
+
+def format_grid_triage_report(puzzle, use_color=False, show_solved=False, max_unknown=None):
+    """Triage report for a live Puzzle: which rows/columns are worth
+    looking at next, ranked by how close each is to done.
+
+    A fully-solved line (no UNKNOWN cells left) has nothing left to
+    triage, so it's hidden by default - pass show_solved=True to list
+    it anyway. max_unknown, if given, additionally hides any line with
+    more than that many UNKNOWN cells remaining (the filter idea from
+    the original slack-threshold sketch, reframed around this metric:
+    "only show lines with N or fewer unknown cells left" instead of "only
+    show lines under this slack").
+
+    Lines whose current marks don't fit their clue at all are reported
+    separately as contradictions, not ranked alongside solvable lines -
+    a broken line isn't "close to done", it needs attention.
+    """
+    entries, contradictions = _line_triage_entries(puzzle)
+
+    total_lines = len(entries)
+    solved_count = sum(1 for e in entries if e["unknown"] == 0)
+    move_count = sum(1 for e in entries if e["has_move"])
+    total_cells = puzzle.width * puzzle.height
+    resolved_cells = sum(e["resolved"] for e in entries if e["kind"] == "row")
+    pct_all = 100.0 * resolved_cells / total_cells if total_cells else 100.0
+
+    out = []
+    title = (
+        f" GRID TRIAGE - {total_lines} line{'s' if total_lines != 1 else ''} "
+        f"({solved_count} solved, {move_count} with a move, "
+        f"{len(contradictions)} contradiction{'s' if len(contradictions) != 1 else ''}) "
+    )
+    out.append("=" * len(title))
+    out.append(title)
+    out.append("=" * len(title))
+    out.append("")
+    out.append(
+        f"Overall: {resolved_cells} of {total_cells} cells filled ({pct_all:.0f}%) - "
+        f"{solved_count} of {total_lines} lines fully solved."
+    )
+    out.append("")
+
+    visible = [e for e in entries if show_solved or e["unknown"] > 0]
+    if max_unknown is not None:
+        visible = [e for e in visible if e["unknown"] <= max_unknown]
+    visible.sort(key=_triage_sort_key)
+
+    if visible:
+        out.append(
+            "Sorted by priority: lines with a pending move first, then by "
+            "ascending unknown-cell count."
+        )
+        out.append("")
+
+        headers = ["#", "line", "len", "clue", "unknown", "resolved", "%", "move?"]
+        rows = []
+        solved_flags = []
+        for rank, entry in enumerate(visible, start=1):
+            clue_display = "0 (blank)" if not entry["clue"] else ", ".join(
+                str(c) for c in entry["clue"]
+            )
+            rows.append(
+                [
+                    str(rank),
+                    entry["label"],
+                    str(entry["length"]),
+                    clue_display,
+                    str(entry["unknown"]),
+                    str(entry["resolved"]),
+                    f"{entry['pct']:.0f}%",
+                    "yes" if entry["has_move"] else "-",
+                ]
+            )
+            solved_flags.append(entry["unknown"] == 0)
+
+        table_lines = build_table(headers, rows)
+        out.append(table_lines[0])
+        out.append(table_lines[1])
+        for is_solved, row_line in zip(solved_flags, table_lines[2:]):
+            out.append(paint(row_line, _GREEN, use_color) if is_solved else row_line)
+        out.append("")
+    elif entries:
+        out.append("(Nothing to show - try show_solved=True or a higher max_unknown.)")
+        out.append("")
+
+    if contradictions:
+        out.extend(section(f"CONTRADICTIONS ({len(contradictions)})"))
+        for message in contradictions:
+            out.append(paint(f"  {message}", _RED, use_color))
+        out.append("")
+
+    return "\n".join(out)
 
 if __name__ == "__main__":
     puzzle = Puzzle(row_clues=[[3]], col_clues=[[1], [1], [1], [], []])
