@@ -12,7 +12,7 @@ from nonogram_overlap import (
     format_report,
     parse_clues,
 )
-from nonogram_linesolve import solve_line, LineContradiction, _is_feasible
+from nonogram_linesolve import solve_line, LineContradiction, _is_feasible, find_solved_blocks
 
 
 def _diff_cells(known, solved, kind, index):
@@ -222,6 +222,24 @@ class Puzzle:
                 "explainer yet."
             )
         return format_report(analyze(len(known), clue))
+
+    def solved_clue_indices(self, kind, index):
+        """Which of this line's clue blocks currently have a start
+        position that's the same in every valid arrangement - i.e.
+        which physical clue number a future UI could strike through.
+        Block 1 is always the leftmost clue, block 2 the next, and so
+        on: a stable mapping independent of how much of the line is
+        actually known.
+
+        This needs its own reasoning (see
+        nonogram_linesolve.find_solved_blocks) rather than being read
+        off apply_line_solver's/solve_line's per-cell output: knowing a
+        run of cells is forced FILLED doesn't by itself say which clue
+        index it belongs to, especially before the line is fully solved.
+        """
+        known, _ = self._solve_line(kind, index)  # labeled LineContradiction if infeasible
+        _, clue = self._line_state(kind, index)
+        return [k + 1 for k in find_solved_blocks(clue, known)]
 
     def propagate(self, seed_changes):
         """Fixed-point constraint propagation from a set of just-changed
