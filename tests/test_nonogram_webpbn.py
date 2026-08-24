@@ -11,8 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN
-from nonogram_webpbn import parse_non, load_non
+from nonogram_tool.nonogram_overlap import FILLED, GAP, UNKNOWN
+from nonogram_tool.nonogram_webpbn import parse_non, load_non
 
 
 DIAMOND_NON = """\

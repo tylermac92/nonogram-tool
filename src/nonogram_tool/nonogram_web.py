@@ -34,8 +34,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from nonogram_linesolve import LineContradiction
-from nonogram_library import open_puzzle, save_to_library
+from .nonogram_linesolve import LineContradiction
+from .nonogram_library import open_puzzle, save_to_library
 
 STATIC_HTML_PATH = Path(__file__).parent / "nonogram_web.html"
 DEFAULT_PORT = 8765
@@ -183,5 +183,10 @@ def main(argv):
     return 0
 
 
-if __name__ == "__main__":
+def cli():
+    """Console-script entry point (see pyproject.toml)."""
     sys.exit(main(sys.argv))
+
+
+if __name__ == "__main__":
+    cli()

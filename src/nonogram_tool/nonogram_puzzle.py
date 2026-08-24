@@ -3,7 +3,7 @@
 import re
 from collections import deque
 
-from nonogram_overlap import (
+from .nonogram_overlap import (
     FILLED,
     GAP,
     UNKNOWN,
@@ -18,7 +18,7 @@ from nonogram_overlap import (
     parse_clues,
     section,
 )
-from nonogram_linesolve import solve_line, LineContradiction, _is_feasible, find_solved_blocks
+from .nonogram_linesolve import solve_line, LineContradiction, _is_feasible, find_solved_blocks
 
 
 def _diff_cells(known, solved, kind, index):

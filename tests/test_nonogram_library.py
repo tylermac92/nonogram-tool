@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN
-from nonogram_puzzle import Puzzle, load_puzzle
-from nonogram_library import (
+from nonogram_tool.nonogram_overlap import FILLED, GAP, UNKNOWN
+from nonogram_tool.nonogram_puzzle import Puzzle, load_puzzle
+from nonogram_tool.nonogram_library import (
     save_to_library,
     open_puzzle,
     list_puzzles,

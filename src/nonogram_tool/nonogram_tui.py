@@ -39,9 +39,9 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Footer, Header, Static
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN
-from nonogram_linesolve import LineContradiction
-from nonogram_library import open_puzzle, save_to_library
+from .nonogram_overlap import FILLED, GAP, UNKNOWN
+from .nonogram_linesolve import LineContradiction
+from .nonogram_library import open_puzzle, save_to_library
 
 CELL_WIDTH = 2
 
@@ -423,5 +423,10 @@ def main(argv):
     return 0
 
 
-if __name__ == "__main__":
+def cli():
+    """Console-script entry point (see pyproject.toml)."""
     sys.exit(main(sys.argv))
+
+
+if __name__ == "__main__":
+    cli()

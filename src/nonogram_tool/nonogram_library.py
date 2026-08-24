@@ -28,8 +28,8 @@ import re
 from datetime import date, datetime
 from pathlib import Path
 
-from nonogram_overlap import UNKNOWN
-from nonogram_puzzle import load_puzzle, save_puzzle
+from .nonogram_overlap import UNKNOWN
+from .nonogram_puzzle import load_puzzle, save_puzzle
 
 DEFAULT_LIBRARY_DIR = Path("puzzles")
 MANIFEST_FILENAME = "manifest.json"

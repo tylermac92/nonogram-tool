@@ -18,10 +18,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN
-from nonogram_puzzle import Puzzle
-import nonogram_library
-from nonogram_tui import (
+from nonogram_tool.nonogram_overlap import FILLED, GAP, UNKNOWN
+from nonogram_tool.nonogram_puzzle import Puzzle
+from nonogram_tool import nonogram_library
+from nonogram_tool.nonogram_tui import (
     NonogramApp,
     NonogramGrid,
     build_col_header_lines,
@@ -338,7 +338,7 @@ class LibraryPatchedTestCase(unittest.TestCase):
         self.addCleanup(self._tmpdir.cleanup)
         library_dir = Path(self._tmpdir.name) / "puzzles"
         save_patch = patch(
-            "nonogram_tui.save_to_library",
+            "nonogram_tool.nonogram_tui.save_to_library",
             functools.partial(nonogram_library.save_to_library, library_dir=library_dir),
         )
         save_patch.start()

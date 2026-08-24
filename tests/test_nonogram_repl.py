@@ -22,12 +22,12 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN
-from nonogram_linesolve import LineContradiction
-from nonogram_puzzle import Puzzle
-import nonogram_library
-import nonogram_repl
-from nonogram_repl import (
+from nonogram_tool.nonogram_overlap import FILLED, GAP, UNKNOWN
+from nonogram_tool.nonogram_linesolve import LineContradiction
+from nonogram_tool.nonogram_puzzle import Puzzle
+from nonogram_tool import nonogram_library
+from nonogram_tool import nonogram_repl
+from nonogram_tool.nonogram_repl import (
     ReplError,
     ReplState,
     COMMANDS,
@@ -219,11 +219,11 @@ class LibraryPatchedTestCase(unittest.TestCase):
         library_dir = Path(self._tmpdir.name) / "puzzles"
 
         save_patch = patch(
-            "nonogram_repl.save_to_library",
+            "nonogram_tool.nonogram_repl.save_to_library",
             functools.partial(nonogram_library.save_to_library, library_dir=library_dir),
         )
         open_patch = patch(
-            "nonogram_repl.open_puzzle",
+            "nonogram_tool.nonogram_repl.open_puzzle",
             functools.partial(nonogram_library.open_puzzle, library_dir=library_dir),
         )
         save_patch.start()
@@ -356,7 +356,7 @@ class TestRunReplIntegration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             library_dir = Path(tmp) / "puzzles"
             with patch(
-                "nonogram_repl.save_to_library",
+                "nonogram_tool.nonogram_repl.save_to_library",
                 functools.partial(nonogram_library.save_to_library, library_dir=library_dir),
             ):
                 rc, output = _run_pipe(

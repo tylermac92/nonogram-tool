@@ -34,10 +34,10 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import FileHistory
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN, color_enabled
-from nonogram_linesolve import LineContradiction
-from nonogram_puzzle import render_grid, format_grid_triage_report
-from nonogram_library import save_to_library, open_puzzle
+from .nonogram_overlap import FILLED, GAP, UNKNOWN, color_enabled
+from .nonogram_linesolve import LineContradiction
+from .nonogram_puzzle import render_grid, format_grid_triage_report
+from .nonogram_library import save_to_library, open_puzzle
 
 DEFAULT_HISTORY_PATH = Path.home() / ".nonogram_repl_history"
 
@@ -316,5 +316,10 @@ def main(argv):
     return run_repl(puzzle=puzzle)
 
 
-if __name__ == "__main__":
+def cli():
+    """Console-script entry point (see pyproject.toml)."""
     sys.exit(main(sys.argv))
+
+
+if __name__ == "__main__":
+    cli()

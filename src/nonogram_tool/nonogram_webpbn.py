@@ -57,8 +57,8 @@ anything about the library.
 import re
 from html import unescape
 
-from nonogram_overlap import LineError, parse_clues
-from nonogram_puzzle import Puzzle
+from .nonogram_overlap import LineError, parse_clues
+from .nonogram_puzzle import Puzzle
 
 _QUOTED_KEYS = ("title", "by", "copyright", "catalogue")
 _KNOWN_KEYS = set(_QUOTED_KEYS) | {"license", "width", "height", "rows", "columns", "goal", "color"}

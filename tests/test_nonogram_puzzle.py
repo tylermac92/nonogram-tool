@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN, analyze, format_report
-from nonogram_linesolve import LineContradiction
-from nonogram_puzzle import (
+from nonogram_tool.nonogram_overlap import FILLED, GAP, UNKNOWN, analyze, format_report
+from nonogram_tool.nonogram_linesolve import LineContradiction
+from nonogram_tool.nonogram_puzzle import (
     Puzzle,
     format_grid_triage_report,
     line_matches_clue,

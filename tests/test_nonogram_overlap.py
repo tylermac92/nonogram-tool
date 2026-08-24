@@ -2,8 +2,8 @@
 """
 Test suite for nonogram_overlap.py
 
-Run with:
-    python3 -m unittest test_nonogram_overlap.py -v
+Run with (from the repo root, after `pip install -e .`):
+    python3 -m unittest discover -s tests -v
 
 No third-party dependencies - built entirely on the standard library, so it
 runs anywhere Python 3 does.
@@ -24,9 +24,7 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from nonogram_overlap import (  # noqa: E402
+from nonogram_tool.nonogram_overlap import (
     LineError,
     analyze,
     batch_fill_summary,
@@ -41,8 +39,6 @@ from nonogram_overlap import (  # noqa: E402
     ruler,
     section,
 )
-
-SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nonogram_overlap.py")
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +491,7 @@ class TestFormatBatchReport(unittest.TestCase):
 class TestCLI(unittest.TestCase):
     def run_cli(self, args, stdin_text=None):
         return subprocess.run(
-            [sys.executable, SCRIPT_PATH, *args],
+            [sys.executable, "-m", "nonogram_tool.nonogram_overlap", *args],
             input=stdin_text,
             capture_output=True,
             text=True,
