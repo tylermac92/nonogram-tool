@@ -12,6 +12,7 @@ from nonogram_overlap import (
     _RED,
     analyze,
     build_table,
+    colorize,
     format_report,
     paint,
     parse_clues,
@@ -531,6 +532,36 @@ def load_puzzle(path):
     with open(path, "r", encoding="utf-8") as fh:
         text = fh.read()
     return parse_puzzle(text)
+
+
+def render_grid(puzzle, use_color=False):
+    """A simple text rendering of the whole live grid: a top ruler, then
+    one row per puzzle row, each prefixed with its row number.
+
+    Deliberately not built on nonogram_overlap's ruler()/render_line() -
+    those hardcode a 2-space left margin sized for their own single-line
+    report layout, which doesn't fit a grid whose row-number column
+    varies with puzzle height. colorize() is reused as-is, though - it's
+    already generic over any FILLED/GAP/UNKNOWN string.
+    """
+    height, width = puzzle.height, puzzle.width
+    label_width = len(str(height))
+    indent = " " * (label_width + 1)
+
+    marks = [" "] * width
+    for pos in range(5, width + 1, 5):
+        digits = str(pos)
+        start = pos - len(digits)
+        for i, ch in enumerate(digits):
+            marks[start + i] = ch
+    lines = [indent + "".join(marks)]
+
+    for r in range(1, height + 1):
+        row_text = "".join(puzzle.get_row(r))
+        label = str(r).rjust(label_width)
+        lines.append(f"{label} {colorize(row_text, use_color)}")
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
