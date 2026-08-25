@@ -20,9 +20,9 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-import nonogram_library
-from nonogram_puzzle import Puzzle
-from nonogram_web import NonogramHTTPServer
+from nonogram_tool import nonogram_library
+from nonogram_tool.nonogram_puzzle import Puzzle
+from nonogram_tool.nonogram_web import NonogramHTTPServer
 
 DIAMOND_ROWS = [[1], [3], [5], [3], [1]]
 DIAMOND_COLS = [[1], [3], [5], [3], [1]]
@@ -171,7 +171,7 @@ class TestSaveWithLibraryId(LiveServerTestCase):
         self.addCleanup(self._tmpdir.cleanup)
         library_dir = Path(self._tmpdir.name) / "puzzles"
         patcher = patch(
-            "nonogram_web.save_to_library",
+            "nonogram_tool.nonogram_web.save_to_library",
             functools.partial(nonogram_library.save_to_library, library_dir=library_dir),
         )
         patcher.start()

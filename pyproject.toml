@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nonogram-tool"
+version = "0.1.0"
+description = "A nonogram (picross) solving toolkit: line solver, live grid state, hints, a saved-puzzles library, .non import, and three interfaces (REPL, TUI, local web) sharing the same engine."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "tylermac92" }]
+keywords = ["nonogram", "picross", "griddler", "puzzle", "solver"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Games/Entertainment :: Puzzle Games",
+]
+
+# The core engine (line solving, Puzzle/grid state, hints, the
+# library, .non import, and the batch/triage CLI) is deliberately
+# dependency-free - it runs anywhere Python 3.9+ does. prompt_toolkit
+# and textual are needed only by the REPL and TUI respectively, so
+# they're optional extras rather than hard requirements.
+dependencies = []
+
+[project.optional-dependencies]
+repl = ["prompt_toolkit>=3.0"]
+tui = ["textual>=0.60"]
+all = ["prompt_toolkit>=3.0", "textual>=0.60"]
+dev = ["prompt_toolkit>=3.0", "textual>=0.60"]
+
+[project.urls]
+Repository = "https://github.com/tylermac92/nonogram-tool"
+
+# Console scripts. Each wraps that module's main(argv), so behavior is
+# identical to running `python -m nonogram_tool.nonogram_X` directly -
+# these just give it a proper installed-command name.
+[project.scripts]
+nonogram-overlap = "nonogram_tool.nonogram_overlap:cli"
+nonogram-repl = "nonogram_tool.nonogram_repl:cli"
+nonogram-tui = "nonogram_tool.nonogram_tui:cli"
+nonogram-web = "nonogram_tool.nonogram_web:cli"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# nonogram_web.py serves this file straight off disk at runtime
+# (Path(__file__).parent / "nonogram_web.html"), so it has to be
+# shipped alongside the .py files in both the sdist and the wheel.
+nonogram_tool = ["nonogram_web.html"]

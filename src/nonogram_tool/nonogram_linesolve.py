@@ -4,7 +4,7 @@
 same value in every valid arrangement.
 """
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN
+from .nonogram_overlap import FILLED, GAP, UNKNOWN
 
 
 class LineContradiction(ValueError):
@@ -173,7 +173,7 @@ def find_solved_blocks(clue, known):
 
 
 if __name__ == "__main__":
-    from nonogram_overlap import analyze
+    from .nonogram_overlap import analyze
 
     # Blank-line regression check: with nothing known, solve_line should
     # match what analyze()'s overlap technique already gives you.

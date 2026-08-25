@@ -2,8 +2,8 @@
 
 import unittest
 
-from nonogram_overlap import FILLED, GAP, UNKNOWN, analyze, render_line
-from nonogram_linesolve import solve_line, LineContradiction, _is_feasible, find_solved_blocks
+from nonogram_tool.nonogram_overlap import FILLED, GAP, UNKNOWN, analyze, render_line
+from nonogram_tool.nonogram_linesolve import solve_line, LineContradiction, _is_feasible, find_solved_blocks
 
 
 BLANK_LINE_CASES = [
