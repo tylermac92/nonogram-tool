@@ -5,6 +5,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this
 project doesn't yet promise strict semantic-versioning compatibility
 guarantees pre-1.0.
 
+## [Unreleased]
+
+### Added
+
+- Standalone binaries (Linux/macOS/Windows) via PyInstaller
+  (`packaging/nonogram.spec`), built and attached to a GitHub Release by
+  `.github/workflows/release.yml` on any `vX.Y.Z` tag push - no Python or
+  `pip install` needed on the target machine.
+- `nonogram`, a unified console script (and the standalone binary's entry
+  point) dispatching to each interface as a subcommand (`nonogram
+  overlap|repl|tui|web ...`), alongside the four existing separate scripts.
+- `build` optional extra (`pyinstaller`) for building the binary locally.
+
 ## [0.1.0] - 2026-08-24
 
 Initial packaged release. Everything below already existed as loose scripts

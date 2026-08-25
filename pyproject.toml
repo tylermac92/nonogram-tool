@@ -34,15 +34,25 @@ dependencies = []
 repl = ["prompt_toolkit>=3.0"]
 tui = ["textual>=0.60"]
 all = ["prompt_toolkit>=3.0", "textual>=0.60"]
-dev = ["prompt_toolkit>=3.0", "textual>=0.60"]
+# Only needed to build standalone binaries (see packaging/nonogram.spec
+# and .github/workflows/release.yml) - not a runtime dependency of the
+# package itself.
+build = ["pyinstaller>=6.0"]
+dev = ["prompt_toolkit>=3.0", "textual>=0.60", "pyinstaller>=6.0"]
 
 [project.urls]
 Repository = "https://github.com/tylermac92/nonogram-tool"
 
 # Console scripts. Each wraps that module's main(argv), so behavior is
 # identical to running `python -m nonogram_tool.nonogram_X` directly -
-# these just give it a proper installed-command name.
+# these just give it a proper installed-command name. `nonogram` is the
+# unified dispatcher (nonogram overlap|repl|tui|web ...) used as the
+# single entry point for standalone binary builds (see
+# .github/workflows/release.yml) - kept alongside the four individual
+# scripts, which remain the more direct way to invoke one interface
+# from a `pip install`.
 [project.scripts]
+nonogram = "nonogram_tool.nonogram_cli:cli"
 nonogram-overlap = "nonogram_tool.nonogram_overlap:cli"
 nonogram-repl = "nonogram_tool.nonogram_repl:cli"
 nonogram-tui = "nonogram_tool.nonogram_tui:cli"

@@ -1,0 +1,87 @@
+name: release
+
+# Builds standalone `nonogram` binaries (Python + all dependencies
+# bundled - nothing to pip install) for Linux, macOS, and Windows, and
+# attaches them to a GitHub Release. PyInstaller doesn't cross-compile,
+# so each OS builds its own binary on its own runner.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: nonogram-linux-x86_64
+            binary_name: nonogram
+          - os: macos-latest
+            asset_name: nonogram-macos-arm64
+            binary_name: nonogram
+          - os: windows-latest
+            asset_name: nonogram-windows-x86_64.exe
+            binary_name: nonogram.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package (all extras, including the build tooling)
+        run: pip install -e ".[all,build]"
+
+      - name: Run test suite
+        run: python -m unittest discover -s tests -v
+
+      - name: Build standalone binary
+        run: pyinstaller packaging/nonogram.spec --distpath dist --workpath build/pyinstaller
+
+      - name: Smoke-test the binary
+        shell: bash
+        run: |
+          ./dist/${{ matrix.binary_name }} overlap 5 3
+          # `web` with no args prints usage to stderr and exits 1 by
+          # design - capture both streams and check the message rather
+          # than letting that expected non-zero status fail the step.
+          output=$(./dist/${{ matrix.binary_name }} web 2>&1 || true)
+          echo "$output" | grep -q Usage
+
+      - name: Rename binary for release
+        shell: bash
+        run: cp "dist/${{ matrix.binary_name }}" "${{ matrix.asset_name }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write  # softprops/action-gh-release needs this to create the release
+    steps:
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifact directories
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+          ls -la release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
